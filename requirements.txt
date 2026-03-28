@@ -1,0 +1,10 @@
+fastapi
+uvicorn
+yfinance
+pandas
+requests
+psycopg2-binary
+python-dotenv
+feedparser
+holidays
+anthropic
