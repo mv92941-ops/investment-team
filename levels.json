@@ -1,0 +1,30 @@
+{
+  "levels": [
+    {
+      "name": "做多關鍵價（日線SMA20）",
+      "price": 33473,
+      "direction": "突破往上做多 / 壓回做空",
+      "owner": "策略王"
+    },
+    {
+      "name": "停損警戒（SMA100支撐）",
+      "price": 33300,
+      "direction": "跌破停損警戒",
+      "owner": "風控師"
+    },
+    {
+      "name": "費波61.8%獲利目標",
+      "price": 33764,
+      "direction": "接近獲利出場參考",
+      "owner": "風控師"
+    },
+    {
+      "name": "日線SMA60強支撐",
+      "price": 32129,
+      "direction": "跌破代表趨勢轉壞",
+      "owner": "策略王"
+    }
+  ],
+  "alert_range": 30,
+  "cooldown_minutes": 30
+}

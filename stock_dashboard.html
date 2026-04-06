@@ -1,0 +1,569 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>📊 投資團隊儀表板</title>
+    <style>
+        :root {
+            --bg: #0d1117; --card: #161b22; --card2: #1c2128;
+            --border: #30363d; --text: #e6edf3; --muted: #7d8590;
+            --green: #3fb950; --red: #f85149; --yellow: #d29922;
+            --blue: #58a6ff; --purple: #bc8cff;
+        }
+        * { box-sizing: border-box; margin: 0; padding: 0; }
+        body { background: var(--bg); color: var(--text); font-family: 'Segoe UI', system-ui, sans-serif; min-height: 100vh; }
+
+        /* ─── Header ─── */
+        .header {
+            background: var(--card); border-bottom: 1px solid var(--border);
+            padding: 14px 28px; display: flex; align-items: center; gap: 16px;
+            position: sticky; top: 0; z-index: 100;
+        }
+        .logo { font-size: 1.25rem; font-weight: 700; color: var(--blue); }
+        .logo span { color: var(--muted); font-weight: 400; font-size: 0.78rem; display: block; margin-top: 1px; }
+        .search { display: flex; gap: 10px; margin-left: auto; }
+        #stockInput {
+            background: var(--bg); border: 1px solid var(--border); color: var(--text);
+            padding: 9px 16px; border-radius: 8px; font-size: 0.92rem; width: 200px;
+            transition: border-color 0.2s;
+        }
+        #stockInput:focus { outline: none; border-color: var(--blue); }
+        .btn {
+            background: var(--blue); color: #fff; border: none;
+            padding: 9px 22px; border-radius: 8px; cursor: pointer;
+            font-size: 0.92rem; font-weight: 700; transition: opacity 0.2s;
+        }
+        .btn:hover { opacity: 0.85; }
+        .btn:disabled { opacity: 0.45; cursor: not-allowed; }
+
+        /* ─── Main ─── */
+        .main { max-width: 1380px; margin: 0 auto; padding: 26px 18px; }
+
+        /* ─── Overview ─── */
+        .overview {
+            background: var(--card); border: 1px solid var(--border); border-radius: 12px;
+            padding: 22px 26px; margin-bottom: 22px;
+            display: flex; gap: 28px; align-items: flex-start; flex-wrap: wrap;
+        }
+        .co-block h2 { font-size: 0.82rem; color: var(--muted); margin-bottom: 3px; }
+        .co-block h1 { font-size: 1.6rem; font-weight: 700; margin-bottom: 3px; }
+        .co-block .sector { font-size: 0.78rem; color: var(--muted); }
+        .price-big { font-size: 2.2rem; font-weight: 800; line-height: 1; margin-bottom: 5px; }
+        .price-change { font-size: 1rem; font-weight: 600; }
+        .up { color: var(--green); } .down { color: var(--red); } .flat { color: var(--muted); }
+        .meta-grid { display: flex; gap: 22px; flex-wrap: wrap; padding-top: 2px; }
+        .meta-item .lbl { font-size: 0.7rem; color: var(--muted); text-transform: uppercase; letter-spacing: 0.4px; margin-bottom: 3px; }
+        .meta-item .val { font-size: 0.9rem; font-weight: 700; }
+
+        /* ─── Grid ─── */
+        .team-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 18px; }
+        .team-card { background: var(--card); border: 1px solid var(--border); border-radius: 12px; padding: 22px; }
+        .team-card.wide { grid-column: 1 / -1; }
+
+        .card-header {
+            display: flex; align-items: center; gap: 13px;
+            margin-bottom: 18px; padding-bottom: 15px; border-bottom: 1px solid var(--border);
+        }
+        .avatar { width: 44px; height: 44px; border-radius: 50%; background: var(--card2); display: flex; align-items: center; justify-content: center; font-size: 1.45rem; flex-shrink: 0; }
+        .card-header-text h3 { font-size: 1rem; font-weight: 700; margin-bottom: 2px; }
+        .card-header-text p { font-size: 0.76rem; color: var(--muted); }
+
+        /* ─── Data rows ─── */
+        .data-row { display: flex; justify-content: space-between; align-items: center; padding: 8px 0; border-bottom: 1px solid rgba(48,54,61,0.5); font-size: 0.86rem; }
+        .data-row:last-child { border-bottom: none; }
+        .data-label { color: var(--muted); }
+        .data-value { font-weight: 700; text-align: right; }
+        .sec-hdr { font-size: 0.7rem; color: var(--blue); font-weight: 700; text-transform: uppercase; letter-spacing: 0.5px; margin: 16px 0 8px; }
+
+        /* ─── Badge ─── */
+        .badge { display: inline-block; padding: 4px 12px; border-radius: 20px; font-size: 0.78rem; font-weight: 700; }
+        .bg { background: rgba(63,185,80,.15); color: var(--green); border: 1px solid rgba(63,185,80,.3); }
+        .by { background: rgba(210,153,34,.15); color: var(--yellow); border: 1px solid rgba(210,153,34,.3); }
+        .br { background: rgba(248,81,73,.15); color: var(--red); border: 1px solid rgba(248,81,73,.3); }
+        .bb { background: rgba(88,166,255,.15); color: var(--blue); border: 1px solid rgba(88,166,255,.3); }
+
+        /* ─── Tag ─── */
+        .tag-list { display: flex; flex-wrap: wrap; gap: 7px; margin-top: 8px; }
+        .tag { padding: 4px 10px; border-radius: 6px; font-size: 0.76rem; font-weight: 600; }
+        .tp { background: rgba(63,185,80,.1); color: var(--green); }
+        .tm { background: rgba(248,81,73,.1); color: var(--red); }
+
+        /* ─── Year bars ─── */
+        .year-trend { display: flex; gap: 10px; align-items: flex-end; margin-top: 8px; }
+        .yb-wrap { flex: 1; text-align: center; }
+        .yb-container { height: 58px; display: flex; align-items: flex-end; justify-content: center; }
+        .yb { width: 30px; border-radius: 4px 4px 0 0; }
+        .yb-lbl { font-size: 0.7rem; color: var(--muted); margin-top: 4px; }
+        .yb-val { font-size: 0.76rem; font-weight: 700; margin-top: 2px; }
+
+        /* ─── RSI bar ─── */
+        .rsi-wrap { margin: 10px 0 6px; }
+        .rsi-track { height: 10px; border-radius: 5px; background: linear-gradient(to right, #f85149 0%, #d29922 25%, #3fb950 50%, #d29922 75%, #f85149 100%); position: relative; }
+        .rsi-dot { position: absolute; top: 50%; transform: translate(-50%, -50%); width: 18px; height: 18px; border-radius: 50%; border: 3px solid #fff; }
+        .rsi-labels { display: flex; justify-content: space-between; font-size: 0.7rem; color: var(--muted); margin-top: 5px; }
+
+        /* ─── Score ─── */
+        .score-num { font-size: 3.8rem; font-weight: 800; line-height: 1; }
+        .score-sub { font-size: 0.72rem; color: var(--muted); margin-top: 3px; }
+
+        /* ─── States ─── */
+        .loading { text-align: center; padding: 90px 20px; }
+        .spinner { width: 44px; height: 44px; border: 3px solid var(--border); border-top-color: var(--blue); border-radius: 50%; animation: spin 0.7s linear infinite; margin: 0 auto 16px; }
+        @keyframes spin { to { transform: rotate(360deg); } }
+        .loading p { color: var(--muted); font-size: 0.95rem; }
+        .empty { text-align: center; padding: 110px 20px; color: var(--muted); }
+        .empty-icon { font-size: 4rem; margin-bottom: 14px; }
+        .empty h2 { font-size: 1.25rem; color: var(--text); margin-bottom: 8px; }
+        .empty p { font-size: 0.85rem; }
+        .err-box { background: rgba(248,81,73,.1); border: 1px solid rgba(248,81,73,.35); border-radius: 10px; padding: 24px; text-align: center; color: var(--red); }
+
+        .notice { margin-top: 20px; padding: 14px 18px; background: var(--card2); border: 1px solid var(--border); border-radius: 8px; }
+        .notice .nt { font-size: 0.73rem; color: var(--blue); font-weight: 700; margin-bottom: 6px; }
+        .notice p { font-size: 0.85rem; line-height: 1.7; color: var(--muted); }
+
+        .footer { text-align: center; padding: 22px; font-size: 0.73rem; color: var(--muted); }
+
+        @media(max-width:768px){
+            .team-grid { grid-template-columns: 1fr; }
+            .team-card.wide { grid-column: 1; }
+            .header { flex-wrap: wrap; }
+            .search { margin-left: 0; width: 100%; }
+            #stockInput { flex: 1; }
+            .wide-inner { grid-template-columns: 1fr !important; }
+        }
+    </style>
+</head>
+<body>
+
+<div class="header">
+    <div class="logo">📊 投資團隊<span>五人分析儀表板</span></div>
+    <div class="search">
+        <input type="text" id="stockInput" placeholder="代號如 2330 / AAPL" />
+        <button class="btn" id="analyzeBtn" onclick="analyze()">開始分析</button>
+    </div>
+</div>
+
+<div class="main">
+    <div id="content">
+        <div class="empty">
+            <div class="empty-icon">📊</div>
+            <h2>召喚投資五人組</h2>
+            <p>輸入股票代號，讓五人團隊一起分析</p>
+            <p style="margin-top:6px">台股輸入 4 碼代號（如 2330）｜美股輸入英文（如 AAPL）</p>
+        </div>
+    </div>
+</div>
+
+<script>
+// ══════════════════════════════════════════
+// 格式化工具
+// ══════════════════════════════════════════
+const v = v => v?.raw ?? v;
+
+const fmt = {
+    n2: x => x == null || isNaN(x) ? 'N/A' : Number(x).toFixed(2),
+    n1: x => x == null || isNaN(x) ? 'N/A' : Number(x).toFixed(1),
+    pct: x => x == null || isNaN(x) ? 'N/A' : (Number(x)*100).toFixed(1) + '%',
+    big: x => {
+        if (x == null || isNaN(x)) return 'N/A';
+        x = Number(x);
+        if (Math.abs(x) >= 1e12) return (x/1e12).toFixed(2) + 'T';
+        if (Math.abs(x) >= 1e9)  return (x/1e9).toFixed(2) + 'B';
+        if (Math.abs(x) >= 1e6)  return (x/1e6).toFixed(2) + 'M';
+        if (Math.abs(x) >= 1e3)  return (x/1e3).toFixed(1) + 'K';
+        return x.toFixed(0);
+    },
+    tw: x => {
+        if (x == null || isNaN(x)) return 'N/A';
+        x = Number(x);
+        if (Math.abs(x) >= 1e8) return (x/1e8).toFixed(2) + '億';
+        if (Math.abs(x) >= 1e4) return (x/1e4).toFixed(1) + '萬';
+        return x.toFixed(0);
+    }
+};
+
+const clr = (x, rev=false) => {
+    if (x == null || isNaN(x)) return 'var(--text)';
+    const pos = Number(x) > 0;
+    if (rev) return pos ? 'var(--red)' : Number(x) < 0 ? 'var(--green)' : 'var(--muted)';
+    return pos ? 'var(--green)' : Number(x) < 0 ? 'var(--red)' : 'var(--muted)';
+};
+const sgn = x => (x != null && Number(x) > 0) ? '+' : '';
+
+// ══════════════════════════════════════════
+// 技術指標
+// ══════════════════════════════════════════
+function sma(arr, n) {
+    const a = (arr||[]).filter(x => x != null);
+    if (a.length < n) return null;
+    return a.slice(-n).reduce((s,x)=>s+x,0) / n;
+}
+function ema(arr, n) {
+    const a = (arr||[]).filter(x => x != null);
+    if (a.length < n) return [];
+    const k = 2/(n+1);
+    let e = a.slice(0,n).reduce((s,x)=>s+x,0)/n;
+    const out = [e];
+    for (let i=n;i<a.length;i++) { e = a[i]*k + e*(1-k); out.push(e); }
+    return out;
+}
+function rsi(closes, n=14) {
+    const a = (closes||[]).filter(x => x != null);
+    if (a.length < n+1) return null;
+    let g=0, l=0;
+    for (let i=1;i<=n;i++) { const d=a[i]-a[i-1]; d>0?g+=d:l-=d; }
+    let ag=g/n, al=l/n;
+    for (let i=n+1;i<a.length;i++) {
+        const d=a[i]-a[i-1];
+        if (d>0){ag=(ag*(n-1)+d)/n;al=al*(n-1)/n;}
+        else{ag=ag*(n-1)/n;al=(al*(n-1)-d)/n;}
+    }
+    return al===0?100:100-100/(1+ag/al);
+}
+function macd(closes) {
+    const e12=ema(closes,12), e26=ema(closes,26);
+    if(!e12.length||!e26.length) return null;
+    const off=e12.length-e26.length;
+    const ml=e26.map((v,i)=>e12[i+off]-v);
+    const sig=ema(ml,9);
+    if(!sig.length) return null;
+    const lm=ml[ml.length-1], ls=sig[sig.length-1];
+    return {macd:lm, signal:ls, hist:lm-ls};
+}
+
+// ══════════════════════════════════════════
+// API（呼叫本地 Python 伺服器）
+// ══════════════════════════════════════════
+async function fetchStockData(code) {
+    const r = await fetch(`http://localhost:5678/api/stock?code=${encodeURIComponent(code)}`,
+                          {signal: AbortSignal.timeout(30000)});
+    const d = await r.json();
+    if (d.error) throw new Error(d.error);
+    return d;
+}
+
+// ══════════════════════════════════════════
+// 主函數
+// ══════════════════════════════════════════
+async function analyze() {
+    const inp = document.getElementById('stockInput').value.trim();
+    if (!inp) return;
+    const sym = /^\d{4,6}$/.test(inp) ? `${inp}.TW` : inp.toUpperCase();
+    const isTW = sym.endsWith('.TW');
+
+    const btn = document.getElementById('analyzeBtn');
+    btn.disabled = true; btn.textContent = '分析中...';
+    document.getElementById('content').innerHTML = `<div class="loading"><div class="spinner"></div><p>正在召喚五人團隊分析 <strong>${inp}</strong>...</p></div>`;
+
+    try {
+        const d = await fetchStockData(inp);
+        renderFromLocal(d);
+    } catch(e) {
+        document.getElementById('content').innerHTML = `
+            <div class="err-box">
+                <div style="font-size:2rem;margin-bottom:12px">❌</div>
+                <p style="font-size:1rem;font-weight:700;margin-bottom:8px">${e.message}</p>
+                <p style="font-size:0.82rem;opacity:0.8">台股：輸入 4 碼代號（如 2330）｜美股：英文代號（如 AAPL）</p>
+            </div>`;
+    }
+    btn.disabled = false; btn.textContent = '開始分析';
+}
+
+// ══════════════════════════════════════════
+// 渲染
+// ══════════════════════════════════════════
+function renderFromLocal(d) {
+    const inp=d.code, sym=d.sym, isTW=d.isTW;
+    const closes=d.closes||[], highs=d.highs||[], lows=d.lows||[], vols=d.vols||[];
+    const years=d.incRows||[];
+
+    const cur=d.cur, prev=d.prev;
+    const chg = cur&&prev ? cur-prev : null;
+    const chgPct = prev ? chg/prev : null;
+
+    // Technical
+    const RSI = rsi(closes);
+    const MACD = macd(closes);
+    const ma20=sma(closes,20), ma60=sma(closes,60), ma120=sma(closes,120);
+    const vol20=sma(vols,20);
+    const lastVol=vols[vols.length-1];
+    const res60=highs.slice(-60).filter(x=>x!=null);
+    const sup60=lows.slice(-60).filter(x=>x!=null);
+    const resistance=res60.length?Math.max(...res60):null;
+    const support=sup60.length?Math.min(...sup60):null;
+
+    const ar0=d.ar0, ar1=d.ar1, inv0=d.inv0, inv1=d.inv1;
+    const arGrow  = ar0&&ar1 ? (ar0-ar1)/ar1 : null;
+    const revGrow = d.revGrow;
+    const arRisk  = arGrow!=null&&revGrow!=null ? arGrow > revGrow*1.5 : false;
+    const invGrow = inv0&&inv1 ? (inv0-inv1)/inv1 : null;
+
+    const pe=d.pe, fpe=d.fpe, pb=d.pb, ps=d.ps, evEb=d.evEb, divY=d.divY;
+    const tgt=d.tgtPrice;
+    const upside=tgt&&cur?(tgt-cur)/cur:null;
+    const fcf=d.freeCF;
+
+    let risk=4;
+    if ((d.de||0)>150) risk++;
+    if ((d.cr||2)<1) risk++;
+    if (arRisk) risk++;
+    if (!fcf||fcf<0) risk++;
+    if ((d.earGrow||0)<-0.1) risk++;
+    risk=Math.min(10,Math.max(1,risk));
+
+    let score=5;
+    if ((d.revGrow||0)>0.1) score++;
+    if ((d.grossMarg||0)>0.4) score++;
+    if ((d.roe||0)>0.15) score++;
+    if (fcf>0) score++;
+    if (RSI!=null&&RSI<40) score+=0.5;
+    if (cur&&ma20&&cur>ma20) score+=0.5;
+    if ((d.de||0)>200) score--;
+    if (arRisk) score-=0.5;
+    score=Math.min(10,Math.max(1,Math.round(score*10)/10));
+
+    const dp=isTW?1:2;
+
+    // ── HTML ──
+    document.getElementById('content').innerHTML = `
+
+    <!-- Overview -->
+    <div class="overview">
+        <div class="co-block">
+            <h2>${sym}</h2>
+            <h1>${d.name||inp}</h1>
+            <div class="sector">${d.sector||''} ${d.industry ? '· '+d.industry : ''}</div>
+        </div>
+        <div>
+            <div class="price-big">${cur!=null?cur.toFixed(dp):'N/A'}</div>
+            <div class="price-change ${chg==null?'flat':chg>=0?'up':'down'}">
+                ${chg!=null ? sgn(chg)+chg.toFixed(dp)+' ('+sgn(chgPct)+(chgPct*100).toFixed(2)+'%)' : 'N/A'}
+            </div>
+        </div>
+        <div class="meta-grid">
+            <div class="meta-item"><div class="lbl">市值</div><div class="val">${fmt.big(d.mktcap)}</div></div>
+            <div class="meta-item"><div class="lbl">成交量</div><div class="val">${fmt.big(d.volume)}</div></div>
+            <div class="meta-item"><div class="lbl">52W 高</div><div class="val">${d.high52?.toFixed(dp)||'N/A'}</div></div>
+            <div class="meta-item"><div class="lbl">52W 低</div><div class="val">${d.low52?.toFixed(dp)||'N/A'}</div></div>
+            <div class="meta-item"><div class="lbl">Beta</div><div class="val">${fmt.n2(d.beta)}</div></div>
+            <div class="meta-item">
+                <div class="lbl">分析師目標</div>
+                <div class="val" style="color:${upside==null?'var(--text)':upside>0?'var(--green)':'var(--red)'}">
+                    ${tgt?.toFixed(isTW?0:2)||'N/A'} ${upside!=null?'('+sgn(upside)+(upside*100).toFixed(1)+'%)':''}
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Team Grid -->
+    <div class="team-grid">
+
+    <!-- 📊 資料酷 -->
+    <div class="team-card">
+        <div class="card-header">
+            <div class="avatar">📊</div>
+            <div class="card-header-text"><h3>資料酷</h3><p>基本面 · 成長率 · 毛利率分析</p></div>
+        </div>
+
+        <div class="sec-hdr">過去三年營收趨勢</div>
+        <div class="year-trend">
+            ${(() => {
+                const maxR = Math.max(...years.map(y=>y.rev||0),1);
+                return years.map((y,i)=>{
+                    const h = Math.max(8, ((y.rev||0)/maxR)*55);
+                    return `<div class="yb-wrap">
+                        <div class="yb-container"><div class="yb" style="height:${h}px;background:${i===0?'var(--blue)':'var(--border)'}"></div></div>
+                        <div class="yb-lbl">${y.yr}</div>
+                        <div class="yb-val">${isTW?fmt.tw(y.rev):fmt.big(y.rev)}</div>
+                    </div>`;
+                }).join('');
+            })()}
+        </div>
+
+        <div class="sec-hdr">關鍵指標</div>
+        ${row('營收成長率', fmt.pct(d.revGrow), d.revGrow)}
+        ${row('毛利率', fmt.pct(d.grossMarg))}
+        ${row('淨利率', fmt.pct(d.profitMarg))}
+        ${row('EPS 成長率', fmt.pct(d.earGrow), d.earGrow)}
+        ${row('ROE', fmt.pct(d.roe), d.roe)}
+        ${row('成交量/20日均量', vol20&&lastVol?(lastVol/vol20).toFixed(2)+'x':'N/A', vol20&&lastVol?lastVol/vol20-1:null)}
+    </div>
+
+    <!-- 🧠 策略王 -->
+    <div class="team-card">
+        <div class="card-header">
+            <div class="avatar">🧠</div>
+            <div class="card-header-text"><h3>策略王</h3><p>技術面 · 趨勢 · 支撐壓力</p></div>
+        </div>
+
+        <div class="sec-hdr">RSI (14)</div>
+        <div class="rsi-wrap">
+            <div class="rsi-track">
+                ${RSI!=null?`<div class="rsi-dot" style="left:${RSI}%;background:${RSI>70?'var(--red)':RSI<30?'var(--green)':'var(--yellow)'}"></div>`:''}
+            </div>
+            <div class="rsi-labels">
+                <span>超賣 30</span>
+                <span style="font-size:0.95rem;font-weight:800;color:${RSI==null?'var(--muted)':RSI>70?'var(--red)':RSI<30?'var(--green)':'var(--yellow)'}">${RSI!=null?RSI.toFixed(1):'N/A'}</span>
+                <span>超買 70</span>
+            </div>
+        </div>
+
+        <div class="sec-hdr">均線位置</div>
+        ${maRow('MA 20', ma20, cur, dp)}
+        ${maRow('MA 60', ma60, cur, dp)}
+        ${maRow('MA 120', ma120, cur, dp)}
+
+        <div class="sec-hdr">MACD 訊號</div>
+        ${row('MACD 線', MACD?.macd?.toFixed(3)||'N/A', MACD?.macd)}
+        ${row('Signal 線', MACD?.signal?.toFixed(3)||'N/A', MACD?.signal)}
+        ${row('柱狀值', MACD?.hist?.toFixed(3)||'N/A', MACD?.hist)}
+
+        <div class="sec-hdr">60日支撐壓力</div>
+        ${row('壓力位（近高）', resistance?.toFixed(dp)||'N/A')}
+        ${row('支撐位（近低）', support?.toFixed(dp)||'N/A')}
+    </div>
+
+    <!-- 🛡️ 風控師 -->
+    <div class="team-card">
+        <div class="card-header">
+            <div class="avatar">🛡️</div>
+            <div class="card-header-text"><h3>風控師</h3><p>財務健康 · 現金流 · 風險訊號</p></div>
+        </div>
+
+        <div class="sec-hdr">財務健康</div>
+        ${row('負債比 (D/E)', d.de!=null?fmt.n2(d.de/100):'N/A', d.de!=null?-d.de:null, true)}
+        ${row('流動比率', fmt.n2(d.cr), d.cr!=null?d.cr-1.5:null)}
+        ${row('自由現金流', isTW?fmt.tw(fcf):fmt.big(fcf), fcf)}
+        ${row('現金及約當', isTW?fmt.tw(d.totalCash):fmt.big(d.totalCash))}
+        ${row('總負債', isTW?fmt.tw(d.totalDebt):fmt.big(d.totalDebt), d.totalDebt!=null?-1:null, true)}
+
+        <div class="sec-hdr">風險訊號偵測</div>
+        ${riskRow('應收帳款', arRisk?'⚠️ 成長異常快於營收':'✓ 正常', !arRisk)}
+        ${riskRow('存貨趨勢', invGrow!=null?(invGrow>0.2?'⚠️ 快速增加':'✓ 正常'):'N/A', !(invGrow>0.2))}
+        ${riskRow('自由現金流', fcf==null?'N/A':fcf>0?'✓ 正數':'⚠️ 負數', fcf>0)}
+
+        <div class="sec-hdr">綜合風險等級</div>
+        <div style="margin-top:8px;display:flex;align-items:center;gap:10px">
+            <span class="badge ${risk<=4?'bg':risk<=6?'by':'br'}">${risk<=4?'低風險':risk<=6?'中等風險':'高風險'}</span>
+            <span style="font-size:0.8rem;color:var(--muted)">風險分數 ${risk}/10</span>
+        </div>
+    </div>
+
+    <!-- 💰 財務長 -->
+    <div class="team-card">
+        <div class="card-header">
+            <div class="avatar">💰</div>
+            <div class="card-header-text"><h3>財務長</h3><p>估值分析 · 本益比 · 安全邊際</p></div>
+        </div>
+
+        <div class="sec-hdr">估值指標</div>
+        ${row('本益比 P/E (TTM)', fmt.n2(pe))}
+        ${row('預估 P/E (Forward)', fmt.n2(fpe))}
+        ${row('股價淨值比 P/B', fmt.n2(pb))}
+        ${row('股價營收比 P/S', fmt.n2(ps))}
+        ${row('EV/EBITDA', fmt.n2(evEb))}
+        ${row('殖利率', fmt.pct(divY))}
+
+        <div class="sec-hdr">估值評估</div>
+        <div style="margin-top:8px">
+            ${pe!=null
+                ? `<div style="font-size:0.8rem;color:var(--muted);margin-bottom:8px">P/E 參考：成長股 25~40，穩定股 15~25，價值股 &lt;15</div>
+                   <span class="badge ${pe<15?'bg':pe<25?'bb':pe<40?'by':'br'}">${pe<15?'可能低估':pe<25?'合理區間':pe<40?'略偏高':'高估值'}</span>`
+                : '<span style="font-size:0.85rem;color:var(--muted)">P/E 資料不足（可能尚未獲利）</span>'}
+        </div>
+
+        ${upside!=null?`
+        <div class="sec-hdr">分析師目標價</div>
+        ${row('目標均價', tgt?.toFixed(isTW?0:2)||'N/A')}
+        ${row('上漲潛力', sgn(upside)+(upside*100).toFixed(1)+'%', upside)}
+        `:''}
+    </div>
+
+    <!-- 💪 強心臟 -->
+    <div class="team-card wide">
+        <div class="card-header">
+            <div class="avatar">💪</div>
+            <div class="card-header-text"><h3>強心臟</h3><p>綜合評分 · 優劣勢 · 操作建議</p></div>
+        </div>
+
+        <div class="wide-inner" style="display:grid;grid-template-columns:160px 1fr 1fr;gap:22px;align-items:start">
+            <div style="text-align:center;padding:10px 0">
+                <div class="score-num" style="color:${score>=7?'var(--green)':score>=5?'var(--yellow)':'var(--red)'}">${score}</div>
+                <div class="score-sub">/ 10 總評分</div>
+                <div style="margin-top:12px">
+                    <span class="badge ${score>=7?'bg':score>=5?'by':'br'}">${score>=7?'值得關注':score>=5?'中性觀察':'謹慎評估'}</span>
+                </div>
+            </div>
+            <div>
+                <div class="sec-hdr" style="margin-top:0">優勢</div>
+                <div class="tag-list">
+                    ${(d.revGrow||0)>0.1?'<div class="tag tp">+ 營收成長強勁</div>':''}
+                    ${(d.grossMarg||0)>0.4?'<div class="tag tp">+ 毛利率優秀</div>':''}
+                    ${(d.roe||0)>0.15?'<div class="tag tp">+ ROE 表現佳</div>':''}
+                    ${fcf&&fcf>0?'<div class="tag tp">+ 正自由現金流</div>':''}
+                    ${(divY||0)>0.03?'<div class="tag tp">+ 高殖利率</div>':''}
+                    ${(d.cr||0)>2?'<div class="tag tp">+ 流動性充裕</div>':''}
+                    ${RSI!=null&&RSI<40?'<div class="tag tp">+ RSI 低點可能有撐</div>':''}
+                    ${cur&&ma20&&cur>ma20?'<div class="tag tp">+ 站上 MA20</div>':''}
+                    ${upside!=null&&upside>0.1?'<div class="tag tp">+ 距目標價有空間</div>':''}
+                    ${pe!=null&&pe<15?'<div class="tag tp">+ 估值偏低</div>':''}
+                </div>
+            </div>
+            <div>
+                <div class="sec-hdr" style="margin-top:0">風險</div>
+                <div class="tag-list">
+                    ${(d.revGrow||0)<-0.05?'<div class="tag tm">- 營收衰退</div>':''}
+                    ${(d.de||0)>150?'<div class="tag tm">- 高負債</div>':''}
+                    ${!fcf||fcf<0?'<div class="tag tm">- 現金流為負</div>':''}
+                    ${arRisk?'<div class="tag tm">- 應收帳款異常</div>':''}
+                    ${RSI!=null&&RSI>70?'<div class="tag tm">- RSI 超買</div>':''}
+                    ${cur&&ma60&&cur<ma60?'<div class="tag tm">- 跌破 MA60</div>':''}
+                    ${(d.beta||0)>1.5?'<div class="tag tm">- 波動性高</div>':''}
+                    ${pe!=null&&pe>40?'<div class="tag tm">- 估值偏高</div>':''}
+                    ${upside!=null&&upside<-0.05?'<div class="tag tm">- 已超分析師目標</div>':''}
+                </div>
+            </div>
+        </div>
+
+        <div class="notice">
+            <div class="nt">💪 強心臟提醒</div>
+            <p>${score>=7
+                ? '基本面與技術面有支撐，但<strong style="color:var(--text)">進場前必須有完整計劃</strong>，確認60分、15分均線對齊，停損設好才進場，不能只憑感覺。'
+                : score>=5
+                ? '目前訊號中性，<strong style="color:var(--text)">等待更明確確認訊號</strong>再考慮進場。耐心等待比倉促進場更重要，機會是等來的。'
+                : '多項指標顯示風險偏高，<strong style="color:var(--text)">此時進場需要更充足的理由</strong>。若要操作，口數降至最小，嚴格控制停損。'}</p>
+        </div>
+    </div>
+
+    </div><!-- end team-grid -->
+
+    <div class="footer">資料來源：Yahoo Finance ｜ 本儀表板僅供參考，不構成投資建議 ｜ 投資有風險，請自行判斷</div>`;
+}
+
+// ══════════════════════════════════════════
+// HTML 輔助
+// ══════════════════════════════════════════
+function row(label, val, colorVal=null, rev=false) {
+    const c = colorVal!=null ? clr(colorVal, rev) : 'var(--text)';
+    return `<div class="data-row"><span class="data-label">${label}</span><span class="data-value" style="color:${c}">${val}</span></div>`;
+}
+function maRow(label, ma, price, dp) {
+    if (!ma||!price) return row(label, 'N/A');
+    const diff = (price-ma)/ma*100;
+    const above = price > ma;
+    return `<div class="data-row">
+        <span class="data-label">${label} <span style="font-size:0.73rem;color:${above?'var(--green)':'var(--red)'}">${above?'↑ 站上':'↓ 跌破'}</span></span>
+        <span class="data-value" style="color:${above?'var(--green)':'var(--red)'}">
+            ${ma.toFixed(dp)} <span style="font-size:0.73rem">(${sgn(diff)}${diff.toFixed(1)}%)</span>
+        </span>
+    </div>`;
+}
+function riskRow(label, val, ok) {
+    return `<div class="data-row"><span class="data-label">${label}</span><span class="data-value" style="color:${ok?'var(--green)':'var(--red)'}">${val}</span></div>`;
+}
+
+document.getElementById('stockInput').addEventListener('keydown', e => { if(e.key==='Enter') analyze(); });
+</script>
+</body>
+</html>

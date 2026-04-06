@@ -1,1 +1,1 @@
-web: python stock_dashboard.py
+worker: python run_all.py

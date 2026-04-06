@@ -16,48 +16,16 @@ import os
 import requests as _req
 warnings.filterwarnings("ignore")
 
-DATA_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "dashboard_data.json")
-DATABASE_URL = os.environ.get("DATABASE_URL", "")
-
-# ── 資料儲存（本機用 JSON，雲端用 PostgreSQL）────────────────────────
-def _db_init(conn):
-    cur = conn.cursor()
-    cur.execute("CREATE TABLE IF NOT EXISTS holdings (id INT PRIMARY KEY, data TEXT)")
-    conn.commit()
+DATA_FILE  = os.path.join(os.path.dirname(os.path.abspath(__file__)), "dashboard_data.json")
+WATCH_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "watchlist_data.json")
 
 def load_holdings() -> list:
-    if DATABASE_URL:
-        try:
-            import psycopg2
-            conn = psycopg2.connect(DATABASE_URL)
-            _db_init(conn)
-            cur = conn.cursor()
-            cur.execute("SELECT data FROM holdings WHERE id=1")
-            row = cur.fetchone()
-            conn.close()
-            return json.loads(row[0]) if row else []
-        except Exception:
-            pass
     if os.path.exists(DATA_FILE):
         with open(DATA_FILE, "r", encoding="utf-8") as f:
             return json.load(f)
     return []
 
 def save_holdings(data: list):
-    if DATABASE_URL:
-        try:
-            import psycopg2
-            conn = psycopg2.connect(DATABASE_URL)
-            _db_init(conn)
-            cur = conn.cursor()
-            cur.execute("INSERT INTO holdings (id, data) VALUES (1, %s) "
-                        "ON CONFLICT (id) DO UPDATE SET data=EXCLUDED.data",
-                        [json.dumps(data, ensure_ascii=False)])
-            conn.commit()
-            conn.close()
-            return
-        except Exception:
-            pass
     with open(DATA_FILE, "w", encoding="utf-8") as f:
         json.dump(data, f, ensure_ascii=False, indent=2)
 
@@ -206,146 +174,263 @@ HTML = """
   .volume-row { font-size: 12px; color: #8b949e; margin-bottom: 6px; }
   .volume-ok   { color: #3fb950; }
   .volume-warn { color: #d29922; }
+
+  .section-divider {
+    margin: 36px 0 16px;
+    border-top: 2px solid #30363d;
+    padding-top: 20px;
+    display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 10px;
+  }
+  .section-divider h2 { font-size: 18px; color: #79c0ff; letter-spacing: 2px; }
+  /* 鎖股區獨立顏色邏輯 */
+  .watch-card                { border-color: #1f6feb; }
+  .watch-card.watch-wait     { background: #0a1028; border-color: #1f6feb; }
+  .watch-card.watch-near     { background: #1a1500; animation: flash-warn 1.2s ease-in-out infinite; }
+  .watch-card.watch-ready    { background: #0a1a0e; border-color: #3fb950; }
+  .watch-badge { font-size: 10px; background: #1f6feb33; color: #79c0ff;
+                 padding: 2px 7px; border-radius: 10px; margin-left: 6px; }
+  .params.full { grid-template-columns: 1fr; }
+  .params input[type="text"] { font-size: 12px; }
 </style>
 </head>
 <body>
 <h1>投資團隊股票儀表板</h1>
 <div class="toolbar">
-  <button class="btn-add" onclick="addCard()">＋ 新增區塊</button>
+  <button class="btn-add" onclick="addCard('hold')">＋ 新增持股</button>
   <button class="btn-add" onclick="refreshAll()">↻ 全部刷新</button>
-  <button class="btn-clear" onclick="clearAll()">✕ 清除全部</button>
+  <button class="btn-clear" onclick="clearAll('hold')">✕ 清除持股</button>
 </div>
 <div class="grid" id="grid"></div>
 
-<script>
-const storage_key = 'stock_dashboard_v4';
+<div class="section-divider">
+  <h2>鎖股區 <span class="watch-badge">觀察中</span></h2>
+  <div style="display:flex;align-items:center;gap:12px;flex-wrap:wrap;">
+    <div style="display:flex;align-items:center;gap:8px;">
+      <label style="font-size:12px;color:#8b949e;white-space:nowrap;">總資產（元）</label>
+      <input id="watch-total" type="number" placeholder="如 3000000"
+        style="background:#0d1117;border:1px solid #30363d;border-radius:6px;color:#e6edf3;padding:6px 10px;font-size:14px;width:150px;"
+        onchange="saveBudgetSettings()">
+    </div>
+    <button class="btn-add" onclick="addCard('watch')">＋ 新增觀察股</button>
+    <button class="btn-add" onclick="refreshWatch()">↻ 刷新觀察</button>
+    <button class="btn-clear" onclick="clearAll('watch')">✕ 清除觀察</button>
+  </div>
+</div>
+<div class="grid" id="watch-grid"></div>
 
-function loadData() {
+<script>
+const HOLD_KEY  = 'stock_dashboard_v4';
+const WATCH_KEY = 'stock_dashboard_watch_v1';
+
+// ── 通用存取 ────────────────────────────────────────────────────────
+function loadData(section) {
+  const key = section === 'watch' ? WATCH_KEY : HOLD_KEY;
   try {
-    const v4 = JSON.parse(localStorage.getItem(storage_key)) || [];
-    // 檢查舊版本的key，取筆數較多的
-    const v3 = JSON.parse(localStorage.getItem('stock_dashboard_v3')) || [];
-    return v4.length >= v3.length ? v4 : v3;
+    const d = JSON.parse(localStorage.getItem(key)) || [];
+    if (section !== 'watch') {
+      const v3 = JSON.parse(localStorage.getItem('stock_dashboard_v3')) || [];
+      return d.length >= v3.length ? d : v3;
+    }
+    return d;
   } catch { return []; }
 }
-function saveData(slots) {
-  localStorage.setItem(storage_key, JSON.stringify(slots));
-  // 同步儲存到伺服器（fire-and-forget）
-  fetch('/saved', { method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify(slots) }).catch(() => {});
+function saveData(slots, section) {
+  const key = section === 'watch' ? WATCH_KEY : HOLD_KEY;
+  const ep  = section === 'watch' ? '/saved-watch' : '/saved';
+  localStorage.setItem(key, JSON.stringify(slots));
+  fetch(ep, { method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify(slots) }).catch(() => {});
 }
 
-function getCardCount() {
-  return document.querySelectorAll('.card').length;
+// 掃描整個 grid 重建資料陣列並存檔
+function autoSave(section) {
+  const sec    = section || 'hold';
+  const isWatch = sec === 'watch';
+  const gridId = isWatch ? 'watch-grid' : 'grid';
+  const slots  = [];
+  document.getElementById(gridId).querySelectorAll('.card').forEach(card => {
+    const id     = card.id.replace('card-', '');
+    const codeEl = document.getElementById(`code-${id}`);
+    if (!codeEl || !codeEl.value.trim()) return;
+    const base = {
+      code:    codeEl.value.trim().toUpperCase(),
+      entry:   parseFloat(document.getElementById(`entry-${id}`)?.value)  || 0,
+      shares:  parseFloat(document.getElementById(`shares-${id}`)?.value) || 0,
+      w20ma:   parseFloat(document.getElementById(`w20ma-${id}`)?.value)  || 0,
+      edate:   document.getElementById(`edate-${id}`)?.value || '',
+      section: sec
+    };
+    if (isWatch) {
+      base.budget    = parseFloat(document.getElementById(`budget-${id}`)?.value) || 0;
+      base.condition = document.getElementById(`cond-${id}`)?.value || '';
+    }
+    slots.push(base);
+  });
+  saveData(slots, sec);
 }
 
-function createCard(index, saved) {
+// 儲存總資產設定
+function saveBudgetSettings() {
+  const total = document.getElementById('watch-total')?.value || '';
+  localStorage.setItem('watch_total_assets', total);
+}
+function loadBudgetSettings() {
+  const total = localStorage.getItem('watch_total_assets') || '';
+  const el = document.getElementById('watch-total');
+  if (el && total) el.value = total;
+}
+
+function createCard(index, saved, section) {
   const d = saved || {};
-  return `
-  <div class="card" id="card-${index}">
-    <div class="card-header">
-      <input id="code-${index}" placeholder="股票/ETF代號（如 1529）" value="${d.code||''}" onkeydown="if(event.key==='Enter')fetchStock(${index})">
-      <button onclick="fetchStock(${index})">查詢</button>
-      <button onclick="removeCard(${index})" style="background:#3d1f1f;color:#f85149;">✕</button>
-    </div>
+  const sec = section || d.section || 'hold';
+  const isWatch = sec === 'watch';
+  const extraClass = isWatch ? 'watch-card watch-wait' : '';
+
+  const holdParams = `
     <div class="params">
       <div>
         <label>進場價格</label>
-        <input id="entry-${index}" type="number" step="0.01" placeholder="0.00" value="${d.entry||''}">
+        <input id="entry-${index}" type="number" step="0.01" placeholder="0.00" value="${d.entry||''}" onchange="autoSave('${sec}')">
       </div>
       <div>
         <label>持有張數</label>
-        <input id="shares-${index}" type="number" placeholder="0" value="${d.shares||''}">
+        <input id="shares-${index}" type="number" placeholder="0" value="${d.shares||''}" onchange="autoSave('${sec}')">
       </div>
       <div>
         <label>週20MA（手動覆蓋）</label>
-        <input id="w20ma-${index}" type="number" step="0.01" placeholder="自動計算" value="${d.w20ma||''}">
+        <input id="w20ma-${index}" type="number" step="0.01" placeholder="自動計算" value="${d.w20ma||''}" onchange="autoSave('${sec}')">
       </div>
       <div>
         <label>進場日期</label>
-        <input id="edate-${index}" type="date" value="${d.edate||''}">
+        <input id="edate-${index}" type="date" value="${d.edate||''}" onchange="autoSave('${sec}')">
+      </div>
+    </div>`;
+
+  const watchParams = `
+    <div class="params">
+      <div>
+        <label>預計買入價（自動帶入）</label>
+        <input id="entry-${index}" type="number" step="0.01" placeholder="查詢後自動帶入" value="${d.entry||''}" onchange="autoSave('${sec}')">
+      </div>
+      <div>
+        <label>可投入金額（元）</label>
+        <input id="budget-${index}" type="number" placeholder="如 100000" value="${d.budget||''}" onchange="autoSave('${sec}')">
+      </div>
+      <div>
+        <label>週20MA（手動覆蓋）</label>
+        <input id="w20ma-${index}" type="number" step="0.01" placeholder="自動計算" value="${d.w20ma||''}" onchange="autoSave('${sec}')">
+      </div>
+      <div>
+        <label>目標買入日</label>
+        <input id="edate-${index}" type="date" value="${d.edate||''}" onchange="autoSave('${sec}')">
       </div>
     </div>
+    <div class="params full" style="margin-top:-4px;">
+      <div>
+        <label>進場條件（自訂）</label>
+        <input id="cond-${index}" type="text" placeholder="如：站回週20MA且爆量突破" value="${d.condition||''}" onchange="autoSave('${sec}')">
+      </div>
+    </div>
+    <input id="shares-${index}" type="hidden" value="${d.shares||''}">`;
+
+  return `
+  <div class="card ${extraClass}" id="card-${index}" data-section="${sec}">
+    <div class="card-header">
+      <input id="code-${index}" placeholder="股票/ETF代號（如 2330）" value="${d.code||''}"
+        onchange="autoSave('${sec}')"
+        onkeydown="if(event.key==='Enter')fetchStock('${index}','${sec}')">
+      <button onclick="fetchStock('${index}','${sec}')">查詢</button>
+      <button onclick="removeCard('${index}','${sec}')" style="background:#3d1f1f;color:#f85149;">✕</button>
+    </div>
+    ${isWatch ? watchParams : holdParams}
     <div id="result-${index}" class="loading" style="display:none"></div>
   </div>`;
 }
 
-function addCard() {
-  const index = Date.now(); // 用時間戳當唯一ID
-  const grid = document.getElementById('grid');
+function addCard(section) {
+  const sec = section || 'hold';
+  const ts = Date.now();
+  const index = sec === 'watch' ? 'w' + ts : ts;
+  const gridId = sec === 'watch' ? 'watch-grid' : 'grid';
+  const grid = document.getElementById(gridId);
   const div = document.createElement('div');
-  div.innerHTML = createCard(index, {});
+  div.innerHTML = createCard(index, {}, sec);
   grid.appendChild(div.firstElementChild);
 }
 
-function removeCard(index) {
+function removeCard(index, section) {
+  const sec = section || 'hold';
   const card = document.getElementById(`card-${index}`);
   if (card) card.remove();
-  const saved = loadData().filter((_, i) => i != index);
-  saveData(saved);
+  autoSave(sec);
 }
 
-function clearAll() {
-  if (!confirm('確定清除所有區塊？')) return;
-  localStorage.removeItem(storage_key);
-  renderGrid();
+function clearAll(section) {
+  const sec = section || 'hold';
+  const label = sec === 'watch' ? '觀察清單' : '持股';
+  if (!confirm(`確定清除所有${label}？`)) return;
+  const key = sec === 'watch' ? WATCH_KEY : HOLD_KEY;
+  localStorage.removeItem(key);
+  if (sec === 'watch') renderWatch(); else renderGrid();
 }
 
 function refreshAll() {
-  const saved = loadData();
-  saved.forEach((d, i) => { if (d && d.code) fetchStock(i, true); });
-  // 也刷新頁面上所有有代號的卡片
   document.querySelectorAll('.card').forEach(card => {
     const id = card.id.replace('card-', '');
+    const sec = card.dataset.section || 'hold';
     const codeEl = document.getElementById(`code-${id}`);
-    if (codeEl && codeEl.value.trim()) fetchStock(id, true);
+    if (codeEl && codeEl.value.trim()) fetchStock(id, sec, true);
+  });
+}
+function refreshWatch() {
+  document.querySelectorAll('.watch-card').forEach(card => {
+    const id = card.id.replace('card-', '');
+    const codeEl = document.getElementById(`code-${id}`);
+    if (codeEl && codeEl.value.trim()) fetchStock(id, 'watch', true);
   });
 }
 
-async function renderGrid() {
-  // 先讀 localStorage（保留最完整的資料）
-  const local = loadData();
+async function renderSection(section) {
+  const isWatch = section === 'watch';
+  const ep      = isWatch ? '/saved-watch' : '/saved';
+  const gridId  = isWatch ? 'watch-grid' : 'grid';
+  const minCards = isWatch ? 3 : 5;
+  const prefix  = isWatch ? 'w' : '';
 
-  // 再讀伺服器
+  const local = loadData(section);
   let server = [];
   try {
-    const resp = await fetch('/saved');
+    const resp = await fetch(ep);
     if (resp.ok) server = await resp.json();
   } catch {}
 
-  // 以筆數較多的為準
   let saved = (local.length >= server.length) ? local : server;
+  if (local.length > server.length && saved.length > 0)
+    fetch(ep, { method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify(saved) }).catch(()=>{});
+  if (server.length > local.length && server.length > 0)
+    localStorage.setItem(isWatch ? WATCH_KEY : HOLD_KEY, JSON.stringify(server));
 
-  // 如果 localStorage 比伺服器多，立即同步到伺服器
-  if (local.length > server.length && saved.length > 0) {
-    fetch('/saved', { method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify(saved) }).catch(() => {});
-  }
-  // 如果伺服器比 localStorage 多，更新 localStorage
-  if (server.length > local.length && server.length > 0) {
-    localStorage.setItem(storage_key, JSON.stringify(server));
-  }
-
-  const grid = document.getElementById('grid');
+  const grid = document.getElementById(gridId);
   grid.innerHTML = '';
-  const count = Math.max(saved.length, 5);
-  for (let i = 0; i < count; i++) {
-    grid.innerHTML += createCard(i, saved[i]);
-  }
-  saved.forEach((d, i) => { if (d && d.code) fetchStock(i, true); });
+  const count = Math.max(saved.length, minCards);
+  for (let i = 0; i < count; i++)
+    grid.innerHTML += createCard(prefix + i, saved[i], section);
+  saved.forEach((d, i) => { if (d && d.code) fetchStock(prefix + i, section, true); });
 }
 
-async function fetchStock(index, silent=false) {
-  const code   = document.getElementById(`code-${index}`).value.trim().toUpperCase();
-  const entry  = parseFloat(document.getElementById(`entry-${index}`).value) || 0;
-  const shares = parseFloat(document.getElementById(`shares-${index}`).value) || 0;
-  const w20ma  = parseFloat(document.getElementById(`w20ma-${index}`).value) || 0;
-  const edate  = document.getElementById(`edate-${index}`).value || '';
+async function renderGrid()  { await renderSection('hold'); }
+async function renderWatch() { await renderSection('watch'); }
+
+async function fetchStock(index, section, silent=false) {
+  const sec    = section || 'hold';
+  const code   = document.getElementById(`code-${index}`)?.value.trim().toUpperCase();
+  const entry  = parseFloat(document.getElementById(`entry-${index}`)?.value)  || 0;
+  const shares = parseFloat(document.getElementById(`shares-${index}`)?.value) || 0;
+  const w20ma  = parseFloat(document.getElementById(`w20ma-${index}`)?.value)  || 0;
+  const edate  = document.getElementById(`edate-${index}`)?.value || '';
 
   if (!code) return;
 
-  // 儲存輸入
-  const saved = loadData();
-  saved[index] = { code, entry, shares, w20ma, edate };
-  saveData(saved);
+  autoSave(sec);
 
   const result = document.getElementById(`result-${index}`);
   result.style.display = 'block';
@@ -355,18 +440,41 @@ async function fetchStock(index, silent=false) {
     const resp = await fetch(`/stock/${code}?entry=${entry}&shares=${shares}&w20ma=${w20ma}&edate=${edate}`);
     const data = await resp.json();
     if (data.error) { result.innerHTML = `<div class="error">❌ ${data.error}</div>`; return; }
-    renderResult(index, data);
+    renderResult(index, data, sec);
   } catch(e) {
     result.innerHTML = `<div class="error">❌ 連線失敗：${e}</div>`;
   }
 }
 
-function renderResult(index, d) {
+function renderResult(index, d, section) {
   const card   = document.getElementById(`card-${index}`);
   const result = document.getElementById(`result-${index}`);
+  const sec    = section || card.dataset.section || 'hold';
+  const isWatch = sec === 'watch';
 
   // 卡片顏色
-  card.className = 'card ' + d.status_class;
+  const watchClass = isWatch ? ' watch-card' : '';
+  card.className = 'card ' + d.status_class + watchClass;
+
+  // 鎖股區：獨立顏色邏輯 + 自動帶入收盤價
+  if (isWatch) {
+    // 自動帶入收盤價
+    const entryEl = document.getElementById(`entry-${index}`);
+    if (entryEl && (!entryEl.value || parseFloat(entryEl.value) === 0)) {
+      entryEl.value = d.current.toFixed(2);
+    }
+
+    // 顏色邏輯：ready=站上20MA, near=距20MA<5%, wait=等待
+    const ma = d.stop_loss;
+    let watchStatus = 'watch-wait';
+    if (ma > 0) {
+      if (d.current >= ma) watchStatus = 'watch-ready';
+      else if (d.current >= ma * 0.95) watchStatus = 'watch-near';
+    }
+    card.className = `card watch-card ${watchStatus}`;
+
+    autoSave('watch');
+  }
 
   const pnlSign   = d.pnl_pct >= 0 ? '+' : '';
   const pnlClass  = d.pnl_pct >= 0 ? 'pos' : 'neg';
@@ -426,6 +534,52 @@ function renderResult(index, d) {
     }
   }
 
+  // 鎖股區：完整資訊計算
+  let buyHtml = '';
+  if (isWatch) {
+    const ma      = d.stop_loss;
+    const cur     = d.current;
+
+    // 距週20MA
+    if (ma > 0) {
+      const gap    = cur - ma;
+      const gapPct = (gap / cur * 100).toFixed(1);
+      const gapColor = gap >= 0 ? '#3fb950' : '#d29922';
+      const gapText  = gap >= 0
+        ? `已站上 MA，領先 $${gap.toFixed(2)}（+${gapPct}%）`
+        : `距站上還差 $${Math.abs(gap).toFixed(2)}（${gapPct}%）`;
+      buyHtml += `<div class="level-row"><span class="label">📍 距週20MA</span><span class="right"><span class="val" style="color:${gapColor}">${gapText}</span></span></div>`;
+    }
+
+    // 可投入金額 → 可買張數
+    const budget  = parseFloat(document.getElementById(`budget-${index}`)?.value) || 0;
+    const total   = parseFloat(document.getElementById('watch-total')?.value) || 0;
+    if (budget > 0 && cur > 0) {
+      const lotCost = cur * 1000;
+      const lots    = Math.floor(budget / lotCost);
+      if (lots > 0) {
+        const spent = lots * lotCost;
+        const left  = budget - spent;
+        buyHtml += `<div class="level-row"><span class="label">💰 可買張數</span><span class="right"><span class="val" style="color:#58a6ff">${lots} 張</span><span class="dist">花 $${spent.toLocaleString()}，剩 $${Math.round(left).toLocaleString()}</span></span></div>`;
+      } else {
+        const frac = Math.floor(budget / cur);
+        buyHtml += `<div class="level-row"><span class="label">💰 預算不足一張</span><span class="right"><span class="val" style="color:#d29922">零股 ${frac} 股</span><span class="dist">每張需 $${Math.round(cur*1000).toLocaleString()}</span></span></div>`;
+      }
+      // 佔總倉位 %
+      if (total > 0) {
+        const pct = (budget / total * 100).toFixed(1);
+        const pctColor = pct > 20 ? '#f85149' : pct > 10 ? '#d29922' : '#3fb950';
+        buyHtml += `<div class="level-row"><span class="label">📊 佔總倉位</span><span class="right"><span class="val" style="color:${pctColor}">${pct}%</span><span class="dist">$${budget.toLocaleString()} / $${total.toLocaleString()}</span></span></div>`;
+      }
+    }
+
+    // 進場條件
+    const cond = document.getElementById(`cond-${index}`)?.value?.trim();
+    if (cond) {
+      buyHtml += `<div class="level-row" style="grid-template-columns:1fr;"><span class="label">🎯 進場條件：<span style="color:#e6edf3;font-size:12px;">${cond}</span></span></div>`;
+    }
+  }
+
   result.innerHTML = `
     <div class="company-name">${d.name}</div>
     <div class="price-row">
@@ -436,17 +590,23 @@ function renderResult(index, d) {
       成交量：<span class="${volClass}">${volIcon} ${(d.volume/1000).toFixed(0)}張</span>
       ${d.vol_ok ? '' : '（未達1萬張門檻）'}
     </div>
-    <div class="levels">${levelsHtml}</div>
+    <div class="levels">${levelsHtml}${buyHtml}</div>
     <div class="advice">${d.advice}</div>
   `;
 }
 
+loadBudgetSettings();
 renderGrid();
+renderWatch();
 
 // 每5分鐘自動刷新
 setInterval(() => {
-  const saved = loadData();
-  saved.forEach((d, i) => { if (d && d.code) fetchStock(i, true); });
+  document.querySelectorAll('.card').forEach(card => {
+    const id = card.id.replace('card-', '');
+    const sec = card.dataset.section || 'hold';
+    const codeEl = document.getElementById(`code-${id}`);
+    if (codeEl && codeEl.value.trim()) fetchStock(id, sec, true);
+  });
 }, 5 * 60 * 1000);
 </script>
 </body>
@@ -467,6 +627,22 @@ def get_saved():
 async def post_saved(request: Request):
     data = await request.json()
     save_holdings(data)
+    return {"ok": True}
+
+
+@app.get("/saved-watch")
+def get_saved_watch():
+    if os.path.exists(WATCH_FILE):
+        with open(WATCH_FILE, "r", encoding="utf-8") as f:
+            return json.load(f)
+    return []
+
+
+@app.post("/saved-watch")
+async def post_saved_watch(request: Request):
+    data = await request.json()
+    with open(WATCH_FILE, "w", encoding="utf-8") as f:
+        json.dump(data, f, ensure_ascii=False, indent=2)
     return {"ok": True}
 
 
@@ -600,17 +776,6 @@ def get_stock(code: str, entry: float = 0, shares: float = 0, w20ma: float = 0, 
 
 
 if __name__ == "__main__":
-    # 雲端用環境變數 PORT，本機自動找空閒 port
-    cloud_port = os.environ.get("PORT")
-    if cloud_port:
-        port = int(cloud_port)
-    else:
-        import socket
-        port = 8100
-        for p in range(8100, 8110):
-            with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
-                if s.connect_ex(("localhost", p)) != 0:
-                    port = p
-                    break
+    port = int(os.environ.get("PORT", 8100))
     print(f"Starting on port {port}...")
     uvicorn.run(app, host="0.0.0.0", port=port)
