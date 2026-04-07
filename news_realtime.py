@@ -132,6 +132,8 @@ def format_alert(news_list: list[dict]) -> str:
     for i, item in enumerate(news_list, 1):
         lines.append(f"{i}. {item['title']}")
         lines.append(f"   [{item['source']}]")
+        if item.get("link"):
+            lines.append(f"   {item['link']}")
         lines.append("")
     lines += [
         "━━━━━━━━━━━━",
@@ -162,7 +164,8 @@ def fetch_breaking_news(seen_titles: set) -> list[dict]:
                     if pub_dt < cutoff:
                         continue
                 seen_titles.add(title)
-                new_breaking.append({"title": title, "source": source["name"]})
+                link = entry.get("link", "")
+                new_breaking.append({"title": title, "source": source["name"], "link": link})
         except Exception as e:
             print(f"  [{source['name']} 抓取失敗] {e}")
 
