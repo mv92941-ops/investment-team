@@ -48,6 +48,14 @@ def run_news_realtime():
     except Exception as e:
         log(f"❌ 即時新聞監控 錯誤：{e}")
 
+def run_trump_monitor():
+    try:
+        from trump_monitor import run_trump_monitor as _run
+        log("✅ 川普貼文監控 啟動（全天每 3 分鐘掃描）")
+        _run()
+    except Exception as e:
+        log(f"❌ 川普貼文監控 錯誤：{e}")
+
 # ── 主程序 ─────────────────────────────────────────────────────────
 
 if __name__ == "__main__":
@@ -61,6 +69,7 @@ if __name__ == "__main__":
     print("  ⏰ 14:00  台股選股報告")
     print("  🔔 全天   台指期關鍵點位即時通知")
     print("  📡 盤中   重大財經新聞即時通知（每 5 分鐘）")
+  print("  🇺🇸 全天   川普 Truth Social 新貼文即時翻譯（每 3 分鐘）")
     print()
     print("  關閉此視窗即停止所有功能")
     print("=" * 50)
@@ -71,6 +80,7 @@ if __name__ == "__main__":
         threading.Thread(target=run_morning_news,   daemon=True, name="morning_news"),
         threading.Thread(target=run_stock_screener, daemon=True, name="stock_screener"),
         threading.Thread(target=run_news_realtime,  daemon=True, name="news_realtime"),
+        threading.Thread(target=run_trump_monitor,  daemon=True, name="trump_monitor"),
     ]
 
     for t in threads:
