@@ -7,4 +7,3 @@ python-dotenv
 feedparser
 holidays
 anthropic
-deep-translator

@@ -1,16 +1,17 @@
 """
-川普 Truth Social 即時監控
-每 3 分鐘掃一次，發現新貼文立即翻譯成繁體中文推播 LINE
-全天 24 小時運作（川普隨時發文）
+川普言論即時監控
+Truth Social API 已封鎖伺服器存取，改用 Google News 監控報導川普言論的新聞
+路透社、AP、Yahoo財經等媒體通常 5~15 分鐘內就會報導重大貼文
+全天 24 小時運作
 """
 
 import os
 import time
 import requests
-from datetime import datetime
+import feedparser
+from datetime import datetime, timezone, timedelta
 from zoneinfo import ZoneInfo
 from dotenv import load_dotenv
-from deep_translator import GoogleTranslator
 
 load_dotenv()
 
@@ -24,45 +25,56 @@ LINE_USER_IDS = [
     if uid.strip()
 ]
 
-CHECK_INTERVAL = 3   # 每幾分鐘掃一次
-TRUMP_ACCOUNT_ID = "107780257626128497"  # @realDonaldTrump on Truth Social
+CHECK_INTERVAL   = 5    # 每幾分鐘掃一次
+NEWS_MAX_AGE_MIN = 30   # 只看 30 分鐘內的新聞
+COOLDOWN_MIN     = 15   # 兩則川普通知之間最少間隔（分鐘）
+
+# ── 川普專屬新聞來源 ──────────────────────────────────────────────────
+TRUMP_SOURCES = [
+    {
+        "name": "Google-川普英文",
+        "url": "https://news.google.com/rss/search?q=Trump+tariff+OR+trade+OR+China+OR+Taiwan+OR+Fed+OR+market&hl=en-US&gl=US&ceid=US:en",
+    },
+    {
+        "name": "Google-川普中文",
+        "url": "https://news.google.com/rss/search?q=川普+關稅+OR+制裁+OR+台灣+OR+中國+OR+貿易+OR+美股&hl=zh-TW&gl=TW&ceid=TW:zh-Hant",
+    },
+    {
+        "name": "Google-Truth Social",
+        "url": "https://news.google.com/rss/search?q=Trump+site:truthsocial.com&hl=en-US&gl=US&ceid=US:en",
+    },
+]
+
+# ── 川普相關觸發關鍵字（英文+中文）──────────────────────────────────
+TRUMP_KEYWORDS = [
+    # 人名
+    "Trump", "川普", "Donald Trump",
+    # 政策
+    "tariff", "關稅", "trade war", "貿易戰", "sanction", "制裁",
+    "executive order", "行政命令",
+    # 地緣
+    "China", "中國", "Taiwan", "台灣", "Taiwan Strait", "台海",
+    "North Korea", "北韓", "Russia", "俄羅斯", "Ukraine", "烏克蘭",
+    # 總經
+    "Fed", "interest rate", "利率", "inflation", "通膨",
+    "recession", "衰退", "debt ceiling", "debt limit",
+    # 市場
+    "stock market", "美股", "Nasdaq", "S&P", "Dow Jones",
+    "NVIDIA", "Apple", "TSMC", "台積電",
+]
+
+# ── 排除無關雜訊 ─────────────────────────────────────────────────────
+EXCLUDE_KEYWORDS = [
+    "golf", "高爾夫", "hair", "lawsuit", "訴訟", "trial", "審判",
+    "TV show", "reality", "celebrity", "名人", "entertainment",
+]
 
 
-def get_latest_posts(last_id: str | None) -> list[dict]:
-    """從 Truth Social Mastodon API 抓最新貼文"""
-    url = f"https://truthsocial.com/api/v1/accounts/{TRUMP_ACCOUNT_ID}/statuses"
-    params = {"limit": 5, "exclude_replies": "true", "exclude_reblogs": "true"}
-    if last_id:
-        params["since_id"] = last_id
-    try:
-        r = requests.get(url, params=params, timeout=15,
-                         headers={"User-Agent": "Mozilla/5.0"})
-        if r.status_code == 200:
-            return r.json()
-        else:
-            print(f"  Truth Social API 回傳 {r.status_code}")
-            return []
-    except Exception as e:
-        print(f"  Truth Social 抓取失敗: {e}")
-        return []
-
-
-def translate_post(raw_text: str) -> str:
-    """用 Google Translate（免費）翻譯成繁體中文"""
-    try:
-        translated = GoogleTranslator(source="auto", target="zh-TW").translate(raw_text)
-        return translated or raw_text
-    except Exception as e:
-        print(f"  翻譯失敗: {e}，改發原文")
-        return raw_text
-
-
-def strip_html(text: str) -> str:
-    """簡單去除 HTML 標籤"""
-    import re
-    text = re.sub(r"<br\s*/?>", "\n", text, flags=re.IGNORECASE)
-    text = re.sub(r"<[^>]+>", "", text)
-    return text.strip()
+def is_trump_related(title: str) -> bool:
+    title_lower = title.lower()
+    if any(kw.lower() in title_lower for kw in EXCLUDE_KEYWORDS):
+        return False
+    return any(kw.lower() in title_lower for kw in TRUMP_KEYWORDS)
 
 
 def send_line(msg: str):
@@ -86,74 +98,88 @@ def send_line(msg: str):
             print(f"  LINE 例外: {e}")
 
 
-INVEST_KEYWORDS = [
-    "tariff", "關稅", "china", "中國", "taiwan", "台灣",
-    "fed", "interest rate", "利率", "inflation", "通膨",
-    "stock", "market", "nasdaq", "dow", "s&p",
-    "nvidia", "tsmc", "apple", "trade", "sanction", "制裁",
-]
-
-def format_message(post: dict, translated: str, raw_text: str) -> str:
-    created_at = post.get("created_at", "")
-    try:
-        from datetime import timezone
-        dt = datetime.fromisoformat(created_at.replace("Z", "+00:00"))
-        dt_tw = dt.astimezone(TZ)
-        time_str = dt_tw.strftime("%m/%d %H:%M")
-    except Exception:
-        time_str = created_at[:16]
-
-    # 偵測是否涉及投資相關內容
-    combined = (raw_text + translated).lower()
-    is_invest = any(kw in combined for kw in INVEST_KEYWORDS)
-    tag = "📈 投資相關！" if is_invest else ""
-
+def format_trump_alert(news_list: list[dict]) -> str:
+    now_str = now_tw().strftime("%m/%d %H:%M")
     lines = [
-        f"🇺🇸 川普剛在 Truth Social 發文 {tag}",
+        f"🇺🇸 川普相關重大消息  {now_str}",
         "━━━━━━━━━━━━",
-        translated,
+        f"共 {len(news_list)} 則新報導",
+        "",
+    ]
+    for i, item in enumerate(news_list, 1):
+        lines.append(f"{i}. {item['title']}")
+        lines.append(f"   [{item['source']}]")
+        lines.append("")
+    lines += [
         "━━━━━━━━━━━━",
-        f"發文時間：{time_str}（台灣時間）",
+        "🧠 策略王：確認對台股/美股的影響方向",
+        "🛡️ 風控師：消息面震盪，注意停損點",
     ]
     return "\n".join(lines)
 
 
+def fetch_trump_news(seen_titles: set) -> list[dict]:
+    cutoff = datetime.now(timezone.utc) - timedelta(minutes=NEWS_MAX_AGE_MIN)
+    results = []
+
+    for source in TRUMP_SOURCES:
+        try:
+            feed = feedparser.parse(source["url"])
+            for entry in feed.entries[:20]:
+                title = entry.get("title", "").strip()
+                if not title or title in seen_titles:
+                    continue
+                if not is_trump_related(title):
+                    continue
+                published = entry.get("published_parsed") or entry.get("updated_parsed")
+                if published:
+                    pub_dt = datetime(*published[:6], tzinfo=timezone.utc)
+                    if pub_dt < cutoff:
+                        continue
+                seen_titles.add(title)
+                results.append({"title": title, "source": source["name"]})
+        except Exception as e:
+            print(f"  [{source['name']} 抓取失敗] {e}")
+
+    return results
+
+
 def run_trump_monitor():
-    print("🇺🇸 川普 Truth Social 監控啟動")
-    print(f"   掃描間隔：{CHECK_INTERVAL} 分鐘（全天 24 小時）")
+    print("🇺🇸 川普言論監控啟動（Google News，全天 24 小時）")
+    print(f"   掃描間隔：{CHECK_INTERVAL} 分鐘")
+    print(f"   新聞時效：最近 {NEWS_MAX_AGE_MIN} 分鐘")
+    print(f"   通知冷卻：{COOLDOWN_MIN} 分鐘")
 
-    last_id: str | None = None
+    seen_titles: set = set()
+    last_sent: datetime | None = None
 
-    # 初始化：抓最新一篇 ID 作為基準，不發送舊文
-    init_posts = get_latest_posts(None)
-    if init_posts:
-        last_id = init_posts[0]["id"]
-        print(f"   基準貼文 ID：{last_id}（不發送，只偵測之後的新文）")
+    # 初始化：先掃一次填充 seen_titles，避免啟動時發舊新聞
+    print("  初始化掃描（不發送）...")
+    fetch_trump_news(seen_titles)
+    print(f"  已記錄 {len(seen_titles)} 則既有標題，開始監控新消息")
 
     while True:
         time.sleep(CHECK_INTERVAL * 60)
         now = now_tw()
-        print(f"[{now.strftime('%H:%M')}] 掃描川普新貼文...")
+        print(f"[{now.strftime('%H:%M')}] 掃描川普相關新聞...")
 
-        new_posts = get_latest_posts(last_id)
-        if not new_posts:
-            print("  無新貼文")
+        news = fetch_trump_news(seen_titles)
+
+        if not news:
+            print("  無新消息")
             continue
 
-        # API 回傳為新→舊，倒序處理讓舊的先發
-        for post in reversed(new_posts):
-            raw = strip_html(post.get("content", ""))
-            if not raw:
-                continue
+        if last_sent and (now - last_sent).total_seconds() < COOLDOWN_MIN * 60:
+            remaining = COOLDOWN_MIN - int((now - last_sent).total_seconds() / 60)
+            print(f"  冷卻中（還剩 {remaining} 分鐘），暫不發送")
+            continue
 
-            post_id = post["id"]
-            print(f"  新貼文（ID {post_id}）：{raw[:60]}...")
-
-            translated = translate_post(raw)
-            msg = format_message(post, translated, raw)
-            send_line(msg)
-            last_id = post_id
-            time.sleep(2)   # 連續多篇時稍微錯開
+        print(f"  發現 {len(news)} 則新川普相關報導，發送中...")
+        for item in news:
+            print(f"    - {item['title']}")
+        msg = format_trump_alert(news)
+        send_line(msg)
+        last_sent = now
 
 
 if __name__ == "__main__":
