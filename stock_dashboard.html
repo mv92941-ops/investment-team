@@ -331,8 +331,8 @@ function renderFromLocal(d) {
     <!-- Overview -->
     <div class="overview">
         <div class="co-block">
-            <h2>${sym}</h2>
-            <h1>${d.name||inp}</h1>
+            <h2><a href="https://finance.yahoo.com/chart/${sym}" target="_blank" style="color:var(--muted);text-decoration:none;" onmouseover="this.style.color='var(--blue)'" onmouseout="this.style.color='var(--muted)'">${sym} ↗</a></h2>
+            <h1><a href="https://finance.yahoo.com/chart/${sym}" target="_blank" style="color:var(--text);text-decoration:none;" onmouseover="this.style.color='var(--blue)'" onmouseout="this.style.color='var(--text)'">${d.name||inp}</a></h1>
             <div class="sector">${d.sector||''} ${d.industry ? '· '+d.industry : ''}</div>
         </div>
         <div>

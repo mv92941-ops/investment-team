@@ -581,7 +581,7 @@ function renderResult(index, d, section) {
   }
 
   result.innerHTML = `
-    <div class="company-name">${d.name}</div>
+    <div class="company-name"><a href="https://finance.yahoo.com/chart/${d.ticker}" target="_blank" style="color:#8b949e;text-decoration:none;" onmouseover="this.style.color='#58a6ff'" onmouseout="this.style.color='#8b949e'">${d.name} ↗</a></div>
     <div class="price-row">
       <span class="price-big ${priceClass}">$${d.current.toFixed(2)}</span>
       <span class="pnl ${pnlClass}">${d.entry > 0 ? pnlSign + d.pnl_pct.toFixed(1) + '%' : ''}</span>
@@ -650,10 +650,12 @@ async def post_saved_watch(request: Request):
 def get_stock(code: str, entry: float = 0, shares: float = 0, w20ma: float = 0, edate: str = ""):
     try:
         # 嘗試台股代號
+        actual_ticker = code
         for suffix in [".TW", ".TWO", ""]:
             ticker = yf.Ticker(code + suffix)
             hist = ticker.history(period="5d", interval="1d")
             if not hist.empty:
+                actual_ticker = code + suffix
                 break
 
         if hist.empty:
@@ -761,7 +763,7 @@ def get_stock(code: str, entry: float = 0, shares: float = 0, w20ma: float = 0, 
         advice_html = "".join(f'<div class="line">{l}</div>' for l in advice_lines)
 
         return {
-            "name": name, "current": current, "volume": volume,
+            "name": name, "ticker": actual_ticker, "current": current, "volume": volume,
             "entry": entry, "shares": shares, "w20ma": w20ma,
             "stop_loss": stop_loss, "tp1": tp1,
             "hist_high": hist_high, "trail_stop": trail_stop, "trail_active": trail_active, "trail_hit": trail_hit,
